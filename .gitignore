@@ -1,0 +1,22 @@
+# Editor / tooling (machine-specific; not needed to run the demo)
+.claude/
+
+# Python / uv
+.venv/
+# Local symlink to the frostwork checkout, created by ./setup.sh (machine-specific).
+vendor/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# uv lockfile: keep it — it pins the whole local graph. (Comment out the next line to ignore it.)
+# uv.lock
+
+# Scrapy
+.scrapy/
+out/
+*.log
+
+# macOS
+.DS_Store
