@@ -81,3 +81,18 @@ def test_navigation_page_lists_books():
     assert nav.next_page == (
         "https://books.toscrape.com/catalogue/category/books_1/page-2.html"
     )
+
+
+def test_standalone_demo_runs_end_to_end(capsys):
+    """`python -m demo.standalone` must actually run. Its section 4 demonstrates the no-fallback
+    contract, which means calling `extract` with an unsupported selector — that path raises by default
+    and was previously written as if it returned an empty column, so the demo died at the last step
+    (reported by Jan Seidler, 2026-07-23). Run the whole thing here so a doc/demo drift fails a test."""
+    from demo import standalone
+
+    standalone.main()
+    out = capsys.readouterr().out
+    assert "A Light in the Attic" in out
+    assert "strict=True (default) raises before scanning" in out
+    assert ":contains() is unsupported" in out
+    assert '"h1:contains(...)::text (unsupported)": []' in out

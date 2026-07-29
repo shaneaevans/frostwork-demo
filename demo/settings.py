@@ -22,7 +22,7 @@ ROBOTSTXT_OBEY = True
 CONCURRENT_REQUESTS_PER_DOMAIN = 4
 DOWNLOAD_DELAY = 0.25
 AUTOTHROTTLE_ENABLED = True
-USER_AGENT = "frostwork-demo (+https://github.com/zytedata/frostwork)"
+USER_AGENT = "frostwork-demo (+https://github.com/shaneaevans/frostwork)"
 
 TELNETCONSOLE_ENABLED = False
 LOG_LEVEL = "INFO"

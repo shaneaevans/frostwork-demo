@@ -172,7 +172,10 @@ pass**.
 ### The payoff ([`demo/bench.py`](demo/bench.py), ~555 KB pages)
 
 The numbers below are illustrative — they vary with your machine, so run `demo/bench.py` yourself for
-your own figures. The ratio is what matters:
+your own figures. The ratio is what matters, and it is specific to *this* workload (one wide `Product`
+schema over a ~555 KB page); Frostwork's own
+[docs/BENCHMARKS.md](https://github.com/shaneaevans/frostwork/blob/main/docs/BENCHMARKS.md) is the
+canonical set of figures across page shapes and field counts:
 
 | Extracting the `Product` schema | ms/page | vs Parsel |
 |---|---|---|
