@@ -9,6 +9,9 @@ extraction backend inside **Scrapy + web-poet**. It has two parts:
    Amazon/Walmart-class product pages (~555 KB, ~2,000 elements) carrying the **Zyte Common Product
    Schema**, crawled into `zyte_common_items.Product`. This is where Frostwork's one-pass engine
    actually pays off (see the benchmark below).
+3. **The same storefront through a browser** — scrapy-playwright renders it, and the *same* schema is
+   scanned off the rendered DOM instead of the wire bytes (`FrostBrowserPage`), reaching a field that
+   only exists after JS runs.
 
 Frostwork answers all of a page object's selectors in a single streaming scan — no lxml tree, no
 DOM, **no fallback** (an unsupported selector returns an empty column, never a wrong value).
@@ -35,7 +38,11 @@ How to put Frostwork behind web-poet with `frostwork.webpoet.FrostPage` (all pag
    (`field(".price::text").map(parse_amount)`); it runs in Python on the tiny extracted value, never
    in the scan. Fields that need the response or other fields (`urljoin`, `productId`) are plain
    `@web_poet.field` methods.
-3. **`Many` / `One` for nested collections** — the whole `zyte_common_items.Product`, including the
+3. **One schema, either response** — the field bundle lives on a `FrostFields` subclass with no
+   response contract, so `ProductPage(ProductFields, FrostPage)` and
+   `ProductBrowserPage(ProductFields, FrostBrowserPage)` share it verbatim. See
+   [the browser section](#third-demo-through-a-browser-demobrowserpy).
+4. **`Many` / `One` for nested collections** — the whole `zyte_common_items.Product`, including the
    nested `Brand`/`Image`/`AggregateRating`/`Breadcrumb`/`AdditionalProperty` types, comes out of
    **one scan**. `Many(".thumb-list .thumb-item", item=Image, url=field("img::attr(src)"))` extracts
    one sub-object per container (each sub-field scoped to it), built into the matching zyte type — no
@@ -53,13 +60,15 @@ The demo is small and meant to be read — the page objects and spiders are the 
 |---|---|
 | [`demo/pages.py`](demo/pages.py) | books.toscrape page objects: `BookPage` (detail) and `NavigationPage` (listing), on `FrostPage` with `.map`/`.re_first` and parallel-column cards. |
 | [`demo/spiders/books.py`](demo/spiders/books.py) | The Scrapy spider crawling books.toscrape — scrapy-poet injects the page objects into the callbacks. |
-| [`demo/commerce.py`](demo/commerce.py) | Storefront page object: the whole `zyte_common_items.Product` (nested types included) in one streaming pass. |
+| [`demo/commerce.py`](demo/commerce.py) | Storefront schema: the whole `zyte_common_items.Product` (nested types included) on `ProductFields`, bound to `HttpResponse` by `ProductPage`. |
 | [`demo/spiders/commerce.py`](demo/spiders/commerce.py) | The spider crawling the local storefront. |
+| [`demo/browser.py`](demo/browser.py) | The browser path: the same `ProductFields` on `FrostBrowserPage`, plus the `BrowserResponse` provider scrapy-poet doesn't ship. |
+| [`demo/spiders/commerce_browser.py`](demo/spiders/commerce_browser.py) | The same crawl through scrapy-playwright (Chromium). |
 | [`demo/prices.py`](demo/prices.py) | Shared price/currency parsing: `price-parser` for the amount, an explicit symbol→ISO map for the currency code. |
 | [`demo/standalone.py`](demo/standalone.py) | Runs the page objects **without Scrapy**, against saved fixtures — the quickest read of the integration. |
 | [`demo/bench.py`](demo/bench.py) | The one-pass-vs-Parsel benchmark. |
 | [`demo/site/`](demo/site/) | The generative storefront server (`catalog.py`, `render.py`, `server.py`). |
-| [`tests/`](tests/) | Fixture-based tests exercising the real async `to_item()` path. |
+| [`tests/`](tests/) | Fixture-based tests exercising the real async `to_item()` path, including both response contracts. |
 
 Both spiders are deliberately tiny — the same shape you'd write without Frostwork. The page object is
 the only thing that changed; the spider never knows which engine runs underneath.
@@ -165,29 +174,85 @@ uv run scrapy crawl commerce -s CLOSESPIDER_ITEMCOUNT=50 -O out/products.json
 uv run python -m demo.bench                                    # one-pass vs Parsel
 ```
 
+The same crawl runs through a real browser too — see [the browser
+section](#third-demo-through-a-browser-demobrowserpy).
+
 [`demo/commerce.py`](demo/commerce.py) extracts the **whole `Product` — scalars plus five nested
 types (`Brand`, `Image`, `AggregateRating`, `Breadcrumb`, `AdditionalProperty`) — in one streaming
-pass**.
+pass**. The schema lives on `ProductFields`, a `FrostFields` subclass with **no response contract**;
+`ProductPage` binds it to the bytes off the wire, and the browser path below binds the same fields to
+a rendered DOM.
 
 ### The payoff ([`demo/bench.py`](demo/bench.py), ~555 KB pages)
 
 The numbers below are illustrative — they vary with your machine, so run `demo/bench.py` yourself for
-your own figures. The ratio is what matters:
+your own figures. The ratio is what matters, and it is specific to *this* workload (one wide `Product`
+schema over a ~555 KB page); Frostwork's own
+[docs/BENCHMARKS.md](https://github.com/shaneaevans/frostwork/blob/main/docs/BENCHMARKS.md) is the
+canonical set of figures across page shapes and field counts:
 
-| Extracting the `Product` schema | ms/page | vs Parsel |
-|---|---|---|
-| Parsel (parse once + run each selector) | ~22 | 1.0× |
-| **Frostwork (one DOM-free streaming pass)** | **~0.8** | **~28×** |
+| Extracting the `Product` schema | Parsel ms/page | Frostwork ms/page | vs Parsel |
+|---|---|---|---|
+| The 11 flat `field(...)` selectors | ~12.7 | ~1.0 | ~13× |
+| **The whole item** (+ 6 `Many`/`One`, 9 sub-selectors) | ~20.5 | ~1.1 | **~18×** |
 
-Frostwork and Parsel return **byte-identical columns** (parity asserted in `bench.py` and
-`tests/test_commerce.py`). *Every* field rides the one scan — including the nested collections — so
-the full Product extracts in well under a millisecond. Adding fields or nesting stays nearly free;
-Parsel pays the full lxml parse up front no matter how little you select. The gap is widest exactly
-here — a big page with a wide schema — and narrows on tiny pages where the parse is cheap either way.
+(Measured on an M-series Mac, Python 3.13, lxml 6.1, Frostwork built in release mode.)
+
+Frostwork and Parsel return **byte-identical columns** — every flat field *and* every row of every
+nested collection (parity asserted in `bench.py` and `tests/test_commerce.py`). The two rows are the
+interesting part: going from 11 selectors to the whole item costs Frostwork **+0.1 ms** and Parsel
+**+8 ms**, because Parsel has to re-run each sub-selector against each matched container while
+Frostwork scopes them inside the pass it was already making. Adding fields or nesting stays nearly
+free; Parsel pays the full lxml parse up front no matter how little you select. The gap is widest
+exactly here — a big page with a wide schema — and narrows on tiny pages where the parse is cheap
+either way.
 
 > **Build Frostwork in release mode.** `uv sync` builds the extension release by default; if you ever
 > `maturin develop` it into the venv by hand, add `--release`, or the Rust core runs ~10× slow and
 > `bench.py` will warn you.
+
+## Third demo: through a browser ([`demo/browser.py`](demo/browser.py))
+
+Everything above scans the bytes the server sent. Frostwork's other response contract scans what a
+*browser* made of them — and the point of this section is that **nothing else changes**: same
+`ProductFields`, same one streaming pass, same columns.
+
+| | Base class | Scans |
+|---|---|---|
+| Direct (default) | `FrostPage` | `response.body` — an `HttpResponse`, the bytes off the wire |
+| Browser | `FrostBrowserPage` | `response.html` — a `BrowserResponse`, the DOM after JS ran |
+
+The storefront gives the browser something to do: the buy box's `#delivery` block is served **empty**
+and filled client-side from the `__APP_STATE__` island ([`demo/site/render.py`](demo/site/render.py),
+`_HYDRATE_JS`). So `delivery_window` / `delivery_cost` are `None` on the direct path and carry values
+on the browser path — while every other field stays byte-identical, which
+[`tests/test_browser.py`](tests/test_browser.py) asserts field for field.
+
+```bash
+uv sync --extra browser && uv run playwright install chromium   # once
+
+uv run python -m demo.site.server                               # terminal 1
+uv run scrapy crawl commerce_browser -s CLOSESPIDER_ITEMCOUNT=10 -O out/browser.json
+```
+
+```json
+{ "name": "Hearthstone Adjustable Deluxe Vest", "price": "40.99", "sku": "…",
+  "delivery_window": "Arrives in 5–7 days", "delivery_cost": "Free delivery" }
+```
+
+One piece is the demo's own, not the library's: **plain scrapy-poet ships no provider for
+`BrowserResponse`** (it can't know a response came from a browser — that's the download handler's
+business), so [`demo/browser.py`](demo/browser.py) supplies a ~10-line `BrowserResponseProvider` that
+wraps the rendered `response.text`. Registered via `SCRAPY_POET_PROVIDERS`; because it needs the real
+download, the browser spider's callbacks take a `scrapy.http.Response` rather than a `DummyResponse`.
+
+On the **Zyte API** stack you write none of that: `scrapy-zyte-api[provider]`'s `ZyteApiProvider`
+already provides `BrowserResponse`, `BrowserHtml` and `AnyResponse`, so a `FrostBrowserPage` is injected
+with no wiring. This demo needs the provider only because it deliberately runs without an API key.
+
+Without the `browser` extra installed, `uv run pytest` skips the one test that needs Chromium and runs
+the rest — the response contract itself is checked offline, by applying the site's own hydration
+script in Python.
 
 ## How the local link works
 

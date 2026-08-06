@@ -22,11 +22,10 @@ ROBOTSTXT_OBEY = True
 CONCURRENT_REQUESTS_PER_DOMAIN = 4
 DOWNLOAD_DELAY = 0.25
 AUTOTHROTTLE_ENABLED = True
-USER_AGENT = "frostwork-demo (+https://github.com/zytedata/frostwork)"
+USER_AGENT = "frostwork-demo (+https://github.com/shaneaevans/frostwork)"
 
 TELNETCONSOLE_ENABLED = False
 LOG_LEVEL = "INFO"
-REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 FEED_EXPORT_ENCODING = "utf-8"
 
 # Developer cache — store every response on disk so re-running the spider replays from disk instead

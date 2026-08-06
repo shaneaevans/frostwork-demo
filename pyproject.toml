@@ -6,13 +6,27 @@ requires-python = ">=3.13"
 dependencies = [
     # The web-poet bridge lives in frostwork.webpoet; the [webpoet] extra pulls in web-poet.
     "frostwork[webpoet]",
-    "scrapy>=2.11",
-    "scrapy-poet>=0.24",
+    # 2.14 is the floor that actually RESOLVES: scrapy <2.14 does not cap Twisted, and Twisted >=25.5
+    # removed `_setAcceptableProtocols`, which those releases import. The demo runs fine on 2.11 with
+    # an old Twisted pinned by hand — but a fresh install of that combination is broken, so don't
+    # advertise it.
+    "scrapy>=2.14",
+    # 0.26 is where `scrapy_poet.Addon` appears (demo/settings.py wires the integration through
+    # ADDONS). On 0.24/0.25 every crawl dies at startup with
+    # "Module 'scrapy_poet' doesn't define any object named 'Addon'".
+    "scrapy-poet>=0.26",
     "zyte-common-items>=0.20",
     # Zyte's price parser — robust amount extraction for the page objects (see demo/prices.py).
     "price-parser>=0.3.4",
     "pytest>=7",
 ]
+
+# The browser path (demo/browser.py, `scrapy crawl commerce_browser`): Frostwork's FrostBrowserPage
+# over a rendered DOM instead of the bytes off the wire. Optional because it pulls a browser:
+#
+#   uv sync --extra browser && uv run playwright install chromium
+[project.optional-dependencies]
+browser = ["scrapy-playwright>=0.0.43"]
 
 [tool.pytest.ini_options]
 # Tests import the `demo` package from the repo root.

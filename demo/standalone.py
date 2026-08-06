@@ -6,8 +6,8 @@ saved books.toscrape.com fixtures.
 Shows: (1) the `FrostPage` `BookPage` producing a `Book` in one streaming pass; (2) `NavigationPage`
 extracting every product card on a listing page (`Many(...)` -> one `BookLink` each, one pass);
 (3) the lower-level `frostwork.Page` primitive doing the same book extraction without web-poet; and
-(4) Frostwork's no-fallback contract — an unsupported selector returns an empty column, never a wrong
-value.
+(4) Frostwork's no-fallback contract — an unsupported selector raises before scanning (the default) or
+returns an empty column (`strict=False`), never a wrong value.
 """
 import asyncio
 import json
@@ -62,10 +62,18 @@ def main() -> None:
     item = page.extract(book_resp.body, encoding="utf-8")   # ONE scan fills every field
     print(json.dumps(item.to_dict(), indent=2, ensure_ascii=False))
 
-    _rule("4. No fallback — an unsupported selector returns an empty column, never a wrong value")
-    # `:contains()` is outside Frostwork's supported subset; it yields [] rather than raising or
-    # silently routing elsewhere (see the compatibility contract).
-    cols = frostwork.extract(book_resp.body, [".product_main h1::text", "h1:contains('Light')::text"])
+    _rule("4. No fallback — an unsupported selector fails fast, or returns an empty column")
+    # `:contains()` is outside Frostwork's supported subset. There are exactly two outcomes, and neither
+    # is a wrong value or a silent reroute to another parser (see the compatibility contract):
+    #   * the DEFAULT (strict=True) raises UnsupportedSelector *before* scanning a byte;
+    #   * strict=False opts into the engine's permissive empty column.
+    selectors = [".product_main h1::text", "h1:contains('Light')::text"]
+    try:
+        frostwork.extract(book_resp.body, selectors)
+    except frostwork.UnsupportedSelector as exc:
+        print(f"strict=True (default) raises before scanning:\n  {exc}\n")
+    cols = frostwork.extract(book_resp.body, selectors, strict=False)
+    print("strict=False returns an empty column for it:")
     print(json.dumps({"h1::text": cols[0], "h1:contains(...)::text (unsupported)": cols[1]}, indent=2))
 
 
