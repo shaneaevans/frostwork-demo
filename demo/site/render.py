@@ -280,6 +280,10 @@ def buy_box(p):
                  el("li", txt("30-day returns"), cls="perk"),
                  el("li", txt(f"SKU: {p['sku']}"), cls="perk sku", data_sku=p["sku"]),
                  cls="perks"),
+              # Client-rendered: EMPTY in the served bytes, filled by `_HYDRATE_JS` from
+              # `__APP_STATE__`. It is the one thing on this page a browser is required for, which is
+              # what the FrostBrowserPage path in demo/browser.py exists to show.
+              el("div", cls="delivery-estimate", id="delivery", data_hydrate="delivery"),
               cls="buy-box", id="buy-box")
 
 
@@ -526,6 +530,11 @@ img{max-width:100%}
 .add-to-cart:hover{filter:brightness(.97)}
 .wishlist{background:#fff;border:1px solid #ccc;border-radius:999px;padding:10px 16px;cursor:pointer;display:flex;gap:6px;align-items:center;font-size:14px}
 .perks{list-style:none;margin:16px 0 0;padding:14px 0 0;border-top:1px solid var(--line);font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:5px}
+/* client-rendered (see _HYDRATE_JS): empty in the served HTML, so :empty keeps it invisible */
+.delivery-estimate:empty{display:none}
+.delivery-estimate{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;display:flex;gap:10px;align-items:baseline;font-size:13px}
+.delivery-window{font-weight:600}
+.delivery-cost{color:var(--muted)}
 
 /* overview / specs / reviews */
 .feature-list{margin:0 0 16px;padding-left:20px}
@@ -644,6 +653,28 @@ _INLINE_JS = (
 ) * 3
 
 
+# Hydration: the ONLY thing on the page whose markup a browser has to produce. Kept separate from
+# `_INLINE_JS` because that string is repeated (`* 3`) for weight and this must run exactly once.
+# Written into `.buy-box > #delivery`, which is served empty — see `buy_box()`.
+_HYDRATE_JS = (
+    "(function(){var s=window.__APP_STATE__||{},d=document.getElementById('delivery');"
+    "if(!d||!s.delivery)return;var w=document.createElement('span');w.className='delivery-window';"
+    "w.textContent=s.delivery.window;var c=document.createElement('span');"
+    "c.className='delivery-cost';c.textContent=s.delivery.cost;c.setAttribute('data-free',"
+    "String(s.delivery.free));d.appendChild(w);d.appendChild(c);"
+    "d.setAttribute('data-hydrated','1')})();"
+)
+
+
+def _delivery(p):
+    """The client-rendered delivery promise. Derived from the product record (no randomness), so the
+    browser path has a value the direct path can be checked against."""
+    days = 2 if p["stock"] > 100 else 5 if p["stock"] else 14
+    free = float(p["price"]) >= 35
+    return {"window": f"Arrives in {days}–{days + 2} days",
+            "cost": "Free delivery" if free else "$4.99 delivery", "free": free}
+
+
 def _app_state(p):
     """A big inline JSON state island — the single most realistic way to add page weight, mirroring
     the data blobs (Next.js / Redux / app-state) that dominate real storefront HTML."""
@@ -656,6 +687,7 @@ def _app_state(p):
     related_full = [catalog.product(r) for r in p["related"][:SIZE["state_related"]]]
     return {
         "product": p,
+        "delivery": _delivery(p),                 # rendered into the DOM by `_HYDRATE_JS`, never by us
         "recommendations": [card_record(r) for r in related_full],
         "relatedDetail": related_full,            # full records (carry their own reviews -> weight)
         "config": {"currency": "USD", "locale": "en-US", "freeShippingThreshold": 35,
@@ -672,6 +704,7 @@ def data_islands(p):
         el("script", raw(json.dumps(_app_state(p))), type="application/json", id="__APP_STATE__"),
         el("script", raw("window.__APP_STATE__=JSON.parse(document.getElementById('__APP_STATE__').textContent);")),
         el("script", raw(_INLINE_JS)),
+        el("script", raw(_HYDRATE_JS)),
     ]
 
 

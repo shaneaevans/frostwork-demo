@@ -11,10 +11,17 @@ sub-field is extracted **scoped to that container** (descendant-or-self) in the 
 into the matching zyte type via `item=`. `.map`/`.re_first` transform sub-values in place. Scalar
 fields are plain `field(...)`; `url`/`productId`/`currency` need the response or another field, so
 they're `@web_poet.field` methods.
+
+The schema itself lives on `ProductFields`, a `FrostFields` subclass — the field machinery with **no
+response contract** attached. `ProductPage` below binds it to web-poet's `HttpResponse` (the bytes off
+the wire); `demo.browser.ProductBrowserPage` binds the *same* fields to a `BrowserResponse` (a
+rendered DOM snapshot). One schema, two inputs — which is what lets the two paths be compared field
+for field (`tests/test_browser.py`).
 """
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 import web_poet
 from web_poet import Returns, handle_urls
@@ -22,7 +29,7 @@ from zyte_common_items import (
     AdditionalProperty, AggregateRating, Brand, Breadcrumb, Image, Product,
 )
 
-from frostwork.webpoet import FrostPage, Many, One, field
+from frostwork.webpoet import FrostFields, FrostPage, Many, One, field
 
 from .prices import parse_amount, symbol_to_currency
 
@@ -36,8 +43,14 @@ def _int(text: str | None) -> int | None:
     return int(text.replace(",", "")) if text else None
 
 
-@handle_urls("127.0.0.1")
-class ProductPage(FrostPage, Returns[Product], skip_nonitem_fields=True):
+class ProductFields(FrostFields):
+    """The whole `Product` schema, with no response contract — see the module docstring. Frostwork
+    merges a page object's fields across the MRO, so binding this to a response base is all a page
+    object needs to do."""
+
+    if TYPE_CHECKING:  # supplied by whichever page base this is mixed into (FrostPage/FrostBrowserPage)
+        response: web_poet.HttpResponse | web_poet.BrowserResponse
+
     # --- scalar Product fields (selector, with an in-Python transform where needed) ---
     canonicalUrl = field('link[rel="canonical"]::attr(href)')
     name = field("h1.product-title::text")
@@ -78,6 +91,11 @@ class ProductPage(FrostPage, Returns[Product], skip_nonitem_fields=True):
     @web_poet.field
     def currency(self) -> str | None:
         return symbol_to_currency(self.currencyRaw)
+
+
+@handle_urls("127.0.0.1")
+class ProductPage(ProductFields, FrostPage, Returns[Product], skip_nonitem_fields=True):
+    """`ProductFields` over the bytes Scrapy downloaded — the default, no browser involved."""
 
 
 @handle_urls("127.0.0.1")
