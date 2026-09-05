@@ -1,127 +1,163 @@
-"""Benchmark Frostwork's one streaming pass vs a full lxml/Parsel parse, extracting the wide
-`zyte_common_items.Product` schema from the generative storefront's heavy (~555 KB) pages.
+"""Benchmark reusable extraction and complete Product construction against Parsel.
 
-Start the site first, then run the benchmark against it:
+    python -m demo.bench -n 20 --rounds 7
 
-    uv run python -m demo.site.server                 # terminal 1
-    uv run python -m demo.bench                        # terminal 2
-    uv run python -m demo.bench --base http://127.0.0.1:8001 -n 60
-
-Frostwork answers the whole schema in ONE scan with no DOM; Parsel (the real-spider baseline) parses
-the page into an lxml tree once, then runs each selector against it. Both run the SAME selectors and
-must return byte-identical columns (parity is asserted). Reports ms/page and the speedup.
-
-"Whole schema" means what the page object actually declares: the flat `field(...)` selectors AND the
-nested `Many`/`One` collections. The collections are where the shapes diverge most — Frostwork scopes
-every sub-field to its container inside the same pass, while Parsel has to re-run each sub-selector
-against each matched container — so leaving them out (as this script used to) understated the gap.
-Both halves are timed, so you can see either.
-
-IMPORTANT: build Frostwork in RELEASE mode first, or the Rust core runs ~10x slow and the numbers are
-meaningless:  `uv sync --reinstall-package frostwork`  (a debug `maturin develop` build will mislead
-you — this script prints a warning if Frostwork looks suspiciously slow).
+By default pages are generated locally. --base fetches them from an already-running storefront.
+Generation/downloads and schema compilation are outside the timing. Exact values, order, keys and
+cardinality must agree before ANY timing starts. Results describe this synthetic workload only.
 """
 from __future__ import annotations
 
 import argparse
+import asyncio
 import gc
+from importlib.metadata import version
+import platform
 import statistics
 import time
 import urllib.request
 
-import frostwork
+import attrs
+from frostwork import Page
+from parsel import Selector
+from web_poet import HttpResponse
 
 from demo.commerce import ProductPage
+from demo.parsel_reference import product as parsel_product
+from demo.site import catalog, render
 
-# The whole ProductPage schema, straight off the page object (public introspection; includes
-# inherited fields). `frost_schema()` reports the two halves separately, and `frostwork.extract_grouped`
-# takes exactly this shape.
-_SCHEMA = ProductPage.frost_schema()
-SELECTORS = list(_SCHEMA["fields"].values())
-GROUPS = [(container, list(subfields.items())) for container, subfields in _SCHEMA["groups"].values()]
-N_SUBFIELDS = sum(len(subs) for _, subs in GROUPS)
+SCHEMA = ProductPage.frost_schema()
 
 
-def _corpus(base: str, n: int) -> list[bytes]:
-    out = []
+def column_page(grouped):
+    page = Page()
+    for name, selector in SCHEMA["fields"].items():
+        page.field_all(name, selector)
+    if grouped:
+        for name, (container, subfields) in SCHEMA["groups"].items():
+            page.many(name, container, {key: (selector, "all") for key, selector in subfields.items()})
+    return page
+
+
+FLAT_PAGE = column_page(False)
+FULL_PAGE = column_page(True)
+
+
+def _corpus(base, n):
+    records = []
     for pid in range(1, n + 1):
-        url = f"{base.rstrip('/')}/p/{pid}"
-        out.append(urllib.request.urlopen(url).read())
-    return out
+        url = (base or "http://benchmark.local").rstrip("/") + catalog.product_url(pid)
+        if base:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                body = response.read()
+        else:
+            body = render.product_page(pid).replace("{HOST}", "benchmark.local").encode("utf-8")
+        records.append((body, url))
+    return records
 
 
-def _frostwork_flat(body: bytes):
-    return frostwork.extract(body, SELECTORS, "utf-8")
+def _frostwork_flat(record):
+    return FLAT_PAGE.extract(record[0], encoding="utf-8").to_dict()
 
 
-def _frostwork_all(body: bytes):
-    """Flat fields AND every nested collection — one pass, one call."""
-    return frostwork.extract_grouped(body, SELECTORS, GROUPS, "utf-8")
+def _frostwork_all(record):
+    return FULL_PAGE.extract(record[0], encoding="utf-8").to_dict()
 
 
-def _parsel_flat(body: bytes):
-    from parsel import Selector
-    sel = Selector(body=body, encoding="utf-8")
-    return [sel.css(q).getall() for q in SELECTORS]
+def _parsel_columns(record, grouped):
+    sel = Selector(body=record[0], encoding="utf-8")
+    values = {name: sel.css(query).getall() for name, query in SCHEMA["fields"].items()}
+    if grouped:
+        for name, (container, subs) in SCHEMA["groups"].items():
+            values[name] = [{key: node.css(query).getall() for key, query in subs.items()}
+                            for node in sel.css(container)]
+    return values
 
 
-def _parsel_all(body: bytes):
-    """The same work in Parsel: one tree, then a query per field, then a query per sub-field PER
-    matched container — which is how you would write it against a DOM."""
-    from parsel import Selector
-    sel = Selector(body=body, encoding="utf-8")
-    flat = [sel.css(q).getall() for q in SELECTORS]
-    grouped = [[[c.css(sub).getall() for _, sub in subs] for c in sel.css(container)]
-               for container, subs in GROUPS]
-    return flat, grouped
+def _parsel_flat(record):
+    return _parsel_columns(record, False)
 
 
-def _time(fn, corpus, rounds) -> float:
-    for body in corpus:  # warm up
-        fn(body)
-    best = min(_elapsed(fn, corpus) for _ in range(rounds))
-    return best / len(corpus) * 1e3
+def _parsel_all(record):
+    return _parsel_columns(record, True)
 
 
-def _elapsed(fn, corpus) -> float:
-    t0 = time.perf_counter()
-    for body in corpus:
-        fn(body)
-    return time.perf_counter() - t0
+async def _frostwork_item(record):
+    body, url = record
+    return attrs.asdict(await ProductPage(response=HttpResponse(url, body=body, encoding="utf-8")).to_item())
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--base", default="http://127.0.0.1:8000")
-    ap.add_argument("-n", type=int, default=40, help="number of product pages to benchmark")
-    ap.add_argument("--rounds", type=int, default=12)
-    args = ap.parse_args()
+async def _parsel_item(record):
+    return attrs.asdict(parsel_product(*record))
 
-    corpus = _corpus(args.base, args.n)
-    kb = statistics.median(len(b) for b in corpus) / 1024
 
-    # parity: Frostwork's one pass must return byte-identical columns to Parsel's queries — for the
-    # flat fields AND for every nested collection's rows.
-    mismatches = sum(1 for b in corpus if _frostwork_all(b) != _parsel_all(b))
+def assert_parity(cases, corpus):
+    """One equality standard for all stages, before timing any stage."""
+    for label, frost, parsel in cases:
+        for record in corpus:
+            actual, expected = frost(record), parsel(record)
+            if actual != expected:
+                keys = sorted(key for key in actual.keys() | expected.keys()
+                              if key not in actual or key not in expected or actual[key] != expected[key])
+                raise ValueError(f"Parity failed: {label}, {record[1]}, fields={keys}")
+            if not actual or not any(actual.values()):
+                raise ValueError(f"Empty benchmark workload: {label}, {record[1]}")
 
+
+def _elapsed(fn, corpus):
+    started = time.perf_counter()
+    for record in corpus:
+        fn(record)
+    return (time.perf_counter() - started) * 1000 / len(corpus)
+
+
+def _measure(frost, parsel, corpus, rounds):
+    timings = [[], []]
+    enabled = gc.isenabled()
     gc.disable()
-    flat = (_time(_frostwork_flat, corpus, args.rounds), _time(_parsel_flat, corpus, args.rounds))
-    full = (_time(_frostwork_all, corpus, args.rounds), _time(_parsel_all, corpus, args.rounds))
-    gc.enable()
+    try:
+        for repeat in range(rounds):
+            # Alternate the engine order so one is not always timed on a colder machine.
+            for index in ((0, 1) if repeat % 2 == 0 else (1, 0)):
+                timings[index].append(_elapsed((frost, parsel)[index], corpus))
+    finally:
+        if enabled:
+            gc.enable()
+    return timings
 
-    print(f"zyte_common_items.Product schema over {len(corpus)} generated pages (median {kb:.0f} KB)")
-    print(f"  parity (frostwork vs Parsel columns, flat + every group row): {mismatches} mismatches")
-    for label, n, (frost_ms, parsel_ms) in (
-        (f"flat fields only ({len(SELECTORS)} selectors)", len(SELECTORS), flat),
-        (f"WHOLE item (+{len(GROUPS)} Many/One, {N_SUBFIELDS} sub-selectors)", N_SUBFIELDS, full),
-    ):
-        print(f"\n  {label}")
-        print(f"    Parsel (parse once + queries) : {parsel_ms:6.2f} ms/page   (1.00x)")
-        print(f"    Frostwork (one streaming pass): {frost_ms:6.2f} ms/page   ({parsel_ms / frost_ms:.2f}x)")
-        if frost_ms > parsel_ms:
-            print("    WARNING: Frostwork slower than Parsel — is it built in release mode? "
-                  "(uv sync --reinstall-package frostwork)")
-    print(f"\n  -> on the whole item Frostwork is {full[1] / full[0]:.1f}x faster, and never builds a DOM")
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base", help="fetch from this storefront instead of generating in-process")
+    parser.add_argument("-n", type=int, default=20)
+    parser.add_argument("--rounds", type=int, default=7)
+    args = parser.parse_args(argv)
+    if not 1 <= args.n <= catalog.CATALOG_SIZE or args.rounds < 1:
+        parser.error(f"-n must be 1..{catalog.CATALOG_SIZE}; --rounds must be positive")
+    corpus = _corpus(args.base, args.n)
+    loop = asyncio.new_event_loop()
+    try:
+        cases = [
+            ("Flat raw columns", _frostwork_flat, _parsel_flat),
+            ("Whole-schema raw columns, including groups", _frostwork_all, _parsel_all),
+            ("Complete Product -> dict (transforms, groups and async dispatch included)",
+             lambda record: loop.run_until_complete(_frostwork_item(record)),
+             lambda record: loop.run_until_complete(_parsel_item(record))),
+        ]
+        # This also warms the reusable plans, keeping compilation outside every timed stage.
+        assert_parity(cases, corpus)
+        print(f"Exact parity passed for every page at every stage. Python {platform.python_version()}, "
+              f"Frostwork {version('frostwork')}, Parsel {version('parsel')}, lxml {version('lxml')}.")
+        print(f"{len(corpus)} synthetic pages; median {statistics.median(len(body) for body, _ in corpus) / 1024:.0f} KiB. "
+              f"{args.rounds} alternating rounds; medians in ms/page, observed min..max in brackets.")
+        for label, frost, parsel in cases:
+            results = _measure(frost, parsel, corpus, args.rounds)
+            print(f"\n{label}")
+            for name, samples in zip(("Frostwork", "Parsel"), results):
+                print(f"  {name}: {statistics.median(samples):.3f} [{min(samples):.3f}..{max(samples):.3f}]")
+            print(f"  Parsel/Frostwork median ratio: {statistics.median(results[1]) / statistics.median(results[0]):.2f}x")
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":

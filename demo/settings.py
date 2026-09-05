@@ -22,19 +22,16 @@ ROBOTSTXT_OBEY = True
 CONCURRENT_REQUESTS_PER_DOMAIN = 4
 DOWNLOAD_DELAY = 0.25
 AUTOTHROTTLE_ENABLED = True
-USER_AGENT = "frostwork-demo (+https://github.com/shaneaevans/frostwork)"
+USER_AGENT = "frostwork-demo (+https://github.com/scrapy/frostwork)"
 
 TELNETCONSOLE_ENABLED = False
 LOG_LEVEL = "INFO"
 FEED_EXPORT_ENCODING = "utf-8"
 
-# Developer cache — store every response on disk so re-running the spider replays from disk instead
-# of re-fetching books.toscrape.com. The Dummy policy caches and serves everything regardless of
-# cache headers (ideal for iterating on page objects). Cache lives in .scrapy/httpcache (gitignored);
-# delete it to force a fresh fetch.
-HTTPCACHE_ENABLED = True
+# Opt in while iterating on the external Books sandbox:
+#   scrapy crawl books -s HTTPCACHE_ENABLED=1
+# Delete .scrapy/httpcache to fetch fresh responses. Local demos and tests disable caching.
+HTTPCACHE_ENABLED = False
 HTTPCACHE_POLICY = "scrapy.extensions.httpcache.DummyPolicy"
-HTTPCACHE_STORAGE = "scrapy.extensions.httpcache.FilesystemCacheStorage"
 HTTPCACHE_DIR = "httpcache"
-HTTPCACHE_EXPIRATION_SECS = 0  # 0 = entries never expire
-HTTPCACHE_IGNORE_HTTP_CODES = []
+HTTPCACHE_EXPIRATION_SECS = 0

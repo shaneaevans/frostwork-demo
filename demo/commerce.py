@@ -4,7 +4,7 @@ These extract the **Zyte Common Product Schema** (`zyte_common_items.Product`) f
 ~555 KB product pages — the whole wide item, including the nested `Brand`, `Image`,
 `AggregateRating`, `Breadcrumb`, and `AdditionalProperty` types — in a SINGLE streaming pass over
 the page (no DOM built). This is the case Frostwork is built for: a big page, a wide schema, and the
-cost stays one scan regardless of how many fields you add.
+fields share the scan; matching and returned values still have a cost.
 
 The nested collections use Frostwork's `Many`/`One`: for every element matching the container, each
 sub-field is extracted **scoped to that container** (descendant-or-self) in the same pass, then built

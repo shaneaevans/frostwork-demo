@@ -41,24 +41,28 @@ class CommerceBrowserSpider(scrapy.Spider):
         "CONCURRENT_REQUESTS_PER_DOMAIN": 8,
     }
 
-    def __init__(self, base="http://127.0.0.1:8000", *args, **kwargs):
+    def __init__(self, base="http://127.0.0.1:8000", max_pages=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.max_pages = int(max_pages) if max_pages is not None else None
+        if self.max_pages is not None and self.max_pages < 1:
+            raise ValueError("max_pages must be positive")
         self.base = base.rstrip("/")
         self.start_urls = [f"{self.base}/c"]
 
-    def start_requests(self):
+    async def start(self):
         for url in self.start_urls:
-            yield scrapy.Request(url, meta={"playwright": True})
+            yield scrapy.Request(url, callback=self.parse, meta={"playwright": True})
 
-    async def parse(self, response: scrapy.http.Response, nav: NavigationBrowserPage):
+    async def parse(self, response: scrapy.http.Response, nav: NavigationBrowserPage, page_number=1):
         navigation = await nav.to_item()
 
         for url in navigation["product_urls"]:
             yield scrapy.Request(url, callback=self.parse_product, meta={"playwright": True})
 
-        if navigation["next_page"]:
+        if navigation["next_page"] and (self.max_pages is None or page_number < self.max_pages):
             yield scrapy.Request(navigation["next_page"], callback=self.parse,
-                                 meta={"playwright": True})
+                                 meta={"playwright": True},
+                                 cb_kwargs={"page_number": page_number + 1})
 
     async def parse_product(self, response: scrapy.http.Response, page: ProductBrowserPage):
         item = await page.to_item()

@@ -25,18 +25,26 @@ class CommerceSpider(scrapy.Spider):
     # The target is a local server — no need to be polite. Crawl flat out so the wall-clock reflects
     # the framework + extraction cost, not deliberate throttling.
     custom_settings = {
+        "HTTPCACHE_ENABLED": False,
         "DOWNLOAD_DELAY": 0,
         "AUTOTHROTTLE_ENABLED": False,
         "CONCURRENT_REQUESTS": 32,
         "CONCURRENT_REQUESTS_PER_DOMAIN": 32,
     }
 
-    def __init__(self, base="http://127.0.0.1:8000", *args, **kwargs):
+    def __init__(self, base="http://127.0.0.1:8000", max_pages=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.max_pages = int(max_pages) if max_pages is not None else None
+        if self.max_pages is not None and self.max_pages < 1:
+            raise ValueError("max_pages must be positive")
         self.base = base.rstrip("/")
         self.start_urls = [f"{self.base}/c"]
 
-    async def parse(self, response: DummyResponse, nav: NavigationPage):
+    async def start(self):
+        for url in self.start_urls:
+            yield scrapy.Request(url, callback=self.parse)
+
+    async def parse(self, response: DummyResponse, nav: NavigationPage, page_number=1):
         # `nav: NavigationPage` is the injection point — scrapy-poet builds it from the response.
         # `DummyResponse` says this callback only needs the page object, not the raw response body.
         navigation = await nav.to_item()
@@ -44,8 +52,9 @@ class CommerceSpider(scrapy.Spider):
         for url in navigation["product_urls"]:
             yield scrapy.Request(url, callback=self.parse_product)
 
-        if navigation["next_page"]:
-            yield scrapy.Request(navigation["next_page"], callback=self.parse)
+        if navigation["next_page"] and (self.max_pages is None or page_number < self.max_pages):
+            yield scrapy.Request(navigation["next_page"], callback=self.parse,
+                                 cb_kwargs={"page_number": page_number + 1})
 
     async def parse_product(self, response: DummyResponse, page: ProductPage):
         # `page.to_item()` runs the whole wide Product extraction in one streaming pass.

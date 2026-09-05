@@ -5,11 +5,10 @@ Two layers, because they fail differently:
 * **Offline (always runs).** The DOM is simulated — the storefront's own `_HYDRATE_JS` is applied in
   Python — so the *response contract* is exercised with no browser: same `ProductFields`, one input
   `HttpResponse`, the other `BrowserResponse`, and every wire-visible column must match.
-* **Real browser (skipped without the `browser` extra).** Chromium renders the page through
-  scrapy-playwright's own machinery, and the client-rendered columns must come out non-empty. This is
+* **Real browser (requires the `browser` extra).** Playwright renders the page directly, and the client-rendered columns must come out non-empty. This is
   what catches a `BrowserResponse` the demo builds wrongly, which the simulation cannot.
 
-    uv run pytest                                     # offline layer only
+    uv run pytest -m "not browser"                     # offline layer only
     uv sync --extra browser && uv run playwright install chromium
     uv run pytest                                     # both layers
 """
@@ -135,13 +134,14 @@ def test_provider_builds_both_browser_inputs_from_a_scrapy_response():
 
 # ------------------------------------------------------- real browser: needs the `browser` extra
 
+@pytest.mark.browser
 def test_real_chromium_render_reaches_frostwork():
     """Render the page in Chromium and scan its actual DOM.
 
     The offline layer above hand-applies `_HYDRATE_JS`; this asserts a real browser agrees — that the
     selectors match what Chromium actually built, and that `render._delivery` is not just checking the
     fixture against itself. The scrapy-playwright wiring on top of this is covered by
-    `scrapy crawl commerce_browser` (see demo/spiders/commerce_browser.py)."""
+    `tests/test_crawls.py` with a real browser spider and exported items."""
     pytest.importorskip("playwright", reason="needs `uv sync --extra browser`")
     import threading
 
@@ -165,6 +165,7 @@ def test_real_chromium_render_reaches_frostwork():
                 browser.close()
     finally:
         httpd.shutdown()
+        httpd.server_close()
         thread.join(timeout=5)
 
     truth = render._delivery(catalog.product(PID))
