@@ -19,13 +19,18 @@ uv sync --locked
 uv run python -m demo.run
 ```
 
-This installs a **released Frostwork wheel**, starts the storefront on an available local port,
+Scrapy 2.20 and newer depend on Frostwork, so this installs the released Frostwork wheel that Scrapy
+itself uses, plus its `webpoet` extra. The command starts the storefront on an available local port,
 crawls two listing pages and their products, writes `out/products.json`, and stops the server.
 The command fails if the crawl encounters errors or produces no items. Rerunning it replaces the output.
 Rust and a Frostwork checkout are only needed for the optional contributor workflow below.
 
-The project supports Python 3.10 and newer; `.python-version` selects 3.13 for the default environment.
-To use another interpreter, pass `--python 3.10` to both `uv sync` and `uv run`.
+The project supports Python 3.11 and newer; `.python-version` selects 3.13 for the default environment.
+To use another interpreter, pass `--python 3.11` to both `uv sync` and `uv run`.
+
+The demo pins Frostwork 0.2, so links to Frostwork's documentation point at the
+[0.2.2 release](https://github.com/scrapy/frostwork/releases/tag/0.2.2). Its main branch documents
+unreleased changes.
 
 Choose your next example:
 
@@ -43,7 +48,7 @@ finishes all products it discovers within that limit. Output order may vary beca
 ## Ordinary Scrapy callbacks
 
 Read [demo/plain.py](demo/plain.py) for the reusable navigation and product schemas, then
-[commerce_plain.py](demo/spiders/commerce_plain.py) for the spider. Its extraction step is:
+[commerce_plain.py](demo/spiders/commerce_plain.py) for the spider. Its extraction step comes down to:
 
 ```python
 values = PRODUCT.extract(response.body, encoding=response.encoding)
@@ -124,7 +129,7 @@ browser crawl, alongside parity for the complete server-visible item.
 Python raises `frostwork.UnsupportedSelector` before scanning if a selector is unsupported.
 `strict=False` explicitly opts into an empty column. Frostwork never silently falls back to another parser.
 Use `Page.check()` to audit your schema and consult the
-[compatibility contract](https://github.com/scrapy/frostwork/blob/main/docs/COMPATIBILITY.md).
+[compatibility contract](https://github.com/scrapy/frostwork/blob/0.2.2/docs/COMPATIBILITY.md).
 
 `python -m demo.standalone` demonstrates both outcomes with `li:last-child > b::text`: this puts a
 reverse-position predicate on an ancestor, an unsupported placement. `:contains()` is supported.
@@ -143,11 +148,12 @@ through Scrapy, pagination, feed export, and tests that deliberately break value
 HTTP tests start their own loopback server; no external storefront is required. Tests use tldextract's
 bundled public-suffix list. Browser-marked tests require the extra and Chromium.
 
-[CI](.github/workflows/ci.yml) covers the declared Scrapy/scrapy-poet floors on Python 3.10,
+[CI](.github/workflows/ci.yml) covers the declared floors (Frostwork 0.2.2, Scrapy 2.20, scrapy-poet 0.26
+and zyte-common-items 0.29) on Python 3.11,
 locked dependencies on Python 3.13 and 3.14, a freshly resolved dependency set, and Chromium on Linux.
 The older [manual validation report](docs/VALIDATION-2026-08-05.md) is historical evidence;
 the executable tests define the current checks. This demo tests integration, while Frostwork's own
-[differential gates](https://github.com/scrapy/frostwork/blob/main/docs/TESTING.md) cover the engine.
+[differential gates](https://github.com/scrapy/frostwork/blob/0.2.2/docs/TESTING.md) cover the engine.
 
 ## Benchmarks
 
@@ -166,7 +172,7 @@ between rounds; results show median milliseconds per page and the observed range
 
 These are synthetic storefront measurements, not general speed guarantees or end-to-end crawl timings.
 Run them on your machine and use Frostwork's
-[canonical benchmarks](https://github.com/scrapy/frostwork/blob/main/docs/BENCHMARKS.md)
+[canonical benchmarks](https://github.com/scrapy/frostwork/blob/0.2.2/docs/BENCHMARKS.md)
 for comparisons across workloads. Contributor builds should use release-mode native code.
 
 ## Working on Frostwork itself
@@ -183,7 +189,9 @@ This installs the locked dependencies, then replaces Frostwork with the editable
 a Rust toolchain. Use `--no-sync` while developing so uv keeps that override. Python edits are picked up
 immediately; rerun the local setup command after Rust changes to rebuild the extension.
 Run `uv sync --locked --reinstall-package frostwork` to return to the published wheel.
+A checkout of Frostwork's main branch can carry unreleased changes; its
+[changelog](https://github.com/scrapy/frostwork/blob/main/CHANGELOG.md) lists them.
 
 For the browser extra with a local checkout, use `./setup.sh --local ../frostwork --extra browser`.
-The library's [Python guide](https://github.com/scrapy/frostwork/blob/main/docs/PYTHON.md)
-explains its API and native build process.
+Frostwork's [Python guide](https://github.com/scrapy/frostwork/blob/main/docs/PYTHON.md) on main
+explains the current API and native build process.
