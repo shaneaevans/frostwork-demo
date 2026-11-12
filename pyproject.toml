@@ -2,10 +2,10 @@
 name = "frostwork-demo"
 version = "0.1.0"
 description = "Runnable Frostwork examples for Scrapy, ItemLoader, web-poet and browsers."
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "frostwork[webpoet]>=0.1.3,<0.2",
-    "scrapy>=2.14,<3",
+    "frostwork[webpoet]>=0.2.2,<0.3",
+    "scrapy>=2.20,<3",
     "scrapy-poet>=0.26,<0.28",
     "zyte-common-items>=0.29,<0.30",
     "price-parser>=0.3.4",
