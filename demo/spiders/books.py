@@ -25,6 +25,10 @@ class BooksSpider(scrapy.Spider):
     # The "Books" category lists the whole catalogue (1000 books across 50 pages).
     start_urls = ["https://books.toscrape.com/catalogue/category/books_1/index.html"]
 
+    async def start(self):
+        for url in self.start_urls:
+            yield scrapy.Request(url, callback=self.parse)
+
     async def parse(self, response: DummyResponse, nav: NavigationPage):
         # `nav: NavigationPage` is the injection point — scrapy-poet builds it from the response.
         # `DummyResponse` says this callback only needs the page object, not the raw response body.

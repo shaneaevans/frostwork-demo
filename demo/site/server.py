@@ -18,8 +18,10 @@ is filled per request — so repeat hits during a crawl or benchmark are fast an
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from urllib.parse import urlparse, parse_qs
 
 from . import catalog, render
@@ -104,6 +106,20 @@ class Handler(BaseHTTPRequestHandler):
 
 def make_server(host="127.0.0.1", port=8000) -> ThreadingHTTPServer:
     return ThreadingHTTPServer((host, port), Handler)
+
+
+@contextmanager
+def local_storefront():
+    """Use an available loopback port and always release the server on exit."""
+    httpd = make_server(port=0)
+    thread = Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{httpd.server_port}"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
 
 
 def main():

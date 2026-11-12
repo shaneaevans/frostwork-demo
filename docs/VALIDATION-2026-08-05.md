@@ -1,5 +1,12 @@
 # Validating frostwork-demo against Frostwork main
 
+> **Historical report.** This records a run on 2026-08-05, against Frostwork main at that date and
+> Scrapy 2.11 to 2.17. Frostwork has since moved to the [Scrapy organisation](https://github.com/scrapy/frostwork),
+> [frostwork#9](https://github.com/scrapy/frostwork/pull/9) was merged, and the demo now runs on
+> Scrapy 2.20 with Frostwork 0.2.2 on Python 3.11 and newer. Library findings below describe Frostwork as it
+> was then; check its [changelog](https://github.com/scrapy/frostwork/blob/main/CHANGELOG.md) for what changed.
+> The repo's [tests](../tests) define the current checks.
+
 **Library under test:** `frostwork` main as of 2026-08-05, including the web-poet integration work
 (`788f4d1`).
 
@@ -253,7 +260,7 @@ above had to do the same. That allocates a second copy of the document per respo
 removing: on the demo's 530 KB page `str.encode()` is ~0.14 ms against a ~1.12 ms scan — **12% of the
 combined cost**.
 
-Implemented in [frostwork#9](https://github.com/shaneaevans/frostwork/pull/9): an `Html` input enum at the PyO3
+Implemented in [frostwork#9](https://github.com/scrapy/frostwork/pull/9): an `Html` input enum at the PyO3
 boundary so `bytes` and `str` both cross as-is, the `str` arm borrowing CPython's UTF-8 view via
 `PyUnicode_AsUTF8AndSize`.
 
@@ -322,7 +329,7 @@ still goes red on a wrong message and on nothing raised; `str` and `bytes` retur
 differential still shows **0 divergences**; and a Chromium crawl extracts **22/22** products with the
 client-rendered fields present and 0 divergences from the bytes path.
 
-Two commits, open as [frostwork#9](https://github.com/shaneaevans/frostwork/pull/9):
+Two commits, open as [frostwork#9](https://github.com/scrapy/frostwork/pull/9):
 
 ```
 Let the engine own the str→UTF-8 step, instead of making callers pre-encode
@@ -339,7 +346,7 @@ Drop Python 3.9, and let the floor job run the suite it never could
    from a path).
 5. Refuse a subfield-less `Many`/`One`.
 6. A table of which zyte-common-items processors want `.as_node()`.
-7. Merge [frostwork#9](https://github.com/shaneaevans/frostwork/pull/9) (see the addendum): `str` at the
+7. Merge [frostwork#9](https://github.com/scrapy/frostwork/pull/9) (see the addendum): `str` at the
    boundary, `abi3-py310`, the floor job running the real suite, and the `__set_name__` wrapping fix it
    uncovered.
 8. While 3.9 is going: consider whether the `typing.Dict`/`List`/`Tuple` imports in `webpoet.py` and

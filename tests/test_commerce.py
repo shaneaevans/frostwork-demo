@@ -32,7 +32,7 @@ def test_page_shape_matches_zyte_targets():
     html = render.product_page(PID)
     size_kb = len(html.encode()) / 1024
     elements = len(Selector(html).xpath("//*"))
-    assert 400 < size_kb < 900, size_kb            # ~530 KB median target
+    assert 400 < size_kb < 900, size_kb            # ~555 KB median
     assert 1500 < elements < 3000, elements        # ~1,800-2,400 target
     assert "application/ld+json" in html           # structured-data island
     assert 'id="__APP_STATE__"' in html            # data island that carries the weight

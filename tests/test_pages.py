@@ -75,7 +75,7 @@ def test_navigation_page_lists_books():
     assert first.title == "A Light in the Attic"
     assert first.price == "51.77"
     assert first.rating == 3
-    # The parallel-column cards keep relative hrefs; the page resolves them to absolute book_urls.
+    # The grouped cards keep relative hrefs; the page resolves them to absolute book_urls.
     assert first.url.endswith("a-light-in-the-attic_1000/index.html")
     assert nav.book_urls[0] == BOOK_URL
     assert nav.next_page == (
@@ -94,5 +94,4 @@ def test_standalone_demo_runs_end_to_end(capsys):
     out = capsys.readouterr().out
     assert "A Light in the Attic" in out
     assert "strict=True (default) raises before scanning" in out
-    assert ":contains() is unsupported" in out
-    assert '"h1:contains(...)::text (unsupported)": []' in out
+    assert '"li:last-child > b::text (unsupported)": []' in out
